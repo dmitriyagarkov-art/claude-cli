@@ -4,7 +4,7 @@
 #  dmitriymarketing
 #
 #  Запускать НА СЕРВЕРЕ (Ubuntu 22.04 / 24.04) от root:
-#    bash -c "$(curl -fsSL https://claude-server.vercel.app/install.sh)"
+#    bash -c "$(curl -fsSL https://claude-cli-iota.vercel.app/install.sh)"
 #
 #  Неинтерактивный режим:
 #    DOMAIN=claude.site.ru EMAIL=me@mail.ru bash -c "$(curl -fsSL .../install.sh)"

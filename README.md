@@ -114,13 +114,13 @@ curl -fsSL https://ВАШ-ДОМЕН/install.sh | head -20
 - `public/index.html`, блок Шага 5, там команда установки (в тексте и в кнопке копирования)
 - `README.md`, если хотите
 
-Ищите строку `claude-server.vercel.app` и меняйте на свой домен.
+Ищите строку `claude-cli-iota.vercel.app` и меняйте на свой домен.
 
 ---
 
 ## Что заменить перед публикацией
 
-- [ ] Адрес `claude-server.vercel.app` в `public/index.html` (одно вхождение, Шаг 5)
+- [ ] Адрес `claude-cli-iota.vercel.app` в `public/index.html` (одно вхождение, Шаг 5)
 - [ ] Аватарку: положить файл в `public/images/avatar.jpg`
 - [ ] Скриншоты: в гайде 8 пунктирных рамок с описанием, что снять.
       Заменить каждую на `<figure class="article-img"><img src="images/01.jpg"><figcaption>подпись</figcaption></figure>`
