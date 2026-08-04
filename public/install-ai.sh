@@ -1,27 +1,35 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  Claude на своём сервере — установщик
+#  Claude или ChatGPT Codex на своём сервере — установщик
 #  dmitriymarketing
 #
 #  Запускать НА СЕРВЕРЕ (Ubuntu 22.04 / 24.04) от root:
-#    bash -c "$(curl -fsSL https://claude-cli-iota.vercel.app/install.sh)"
+#    bash -c "$(curl -fsSL https://claude-cli-iota.vercel.app/install-ai.sh)"
 #
-#  Неинтерактивный режим:
-#    DOMAIN=claude.site.ru EMAIL=me@mail.ru bash -c "$(curl -fsSL .../install.sh)"
+#  Ставит ОДНОГО агента на выбор. Если запустить второй раз на том же сервере,
+#  предложит доставить второго рядом с первым.
+#
+#  Неинтерактивно:
+#    AGENT=claude DOMAIN=ai.site.ru EMAIL=me@mail.ru bash -c "$(curl -fsSL ...)"
+#    AGENT: claude | codex
 # =============================================================================
 
 set -Eeuo pipefail
 
-VERSION="1.1.0"
+VERSION="2.0.0"
 PANEL_PORT="${PANEL_PORT:-3001}"
 CLAUDE_PKG="@anthropic-ai/claude-code"
+CODEX_PKG="@openai/codex"
 PANEL_PKG="@cloudcli-ai/cloudcli"
 NODE_MAJOR=22
 LOG="/var/log/claude-server-install.log"
 INFO_FILE="/root/claude-server-info.txt"
+SERVICE="claude-panel"
 
 DOMAIN="${DOMAIN:-}"
 EMAIL="${EMAIL:-}"
+AGENT="${AGENT:-}"        # claude | codex
+SITE_OK=0
 
 # ---------- оформление ----------
 if [ -t 1 ]; then
@@ -45,7 +53,7 @@ on_err() {
   local code=$? line=${1:-?}
   printf '\n%s✗ Установка прервалась%s (строка %s, код %s)\n' "$RED" "$R" "$line" "$code" >&2
   printf '  Полный лог: %s\n' "$LOG" >&2
-  printf '  Скиньте последние 40 строк лога в Claude или ChatGPT, вам помогут:\n' >&2
+  printf '  Скиньте последние 40 строк лога в нейросеть, вам помогут:\n' >&2
   printf '    tail -40 %s\n\n' "$LOG" >&2
 }
 trap 'on_err $LINENO' ERR
@@ -57,8 +65,8 @@ cat <<'EOF'
 
   ┌───────────────────────────────────────────────┐
   │                                               │
-  │      CLAUDE НА СВОЁМ СЕРВЕРЕ                  │
-  │      установка одной командой                 │
+  │      СВОЙ ИИ НА СВОЁМ СЕРВЕРЕ                 │
+  │      Claude или ChatGPT Codex                 │
   │                                               │
   │      dmitriymarketing                         │
   │                                               │
@@ -67,12 +75,32 @@ EOF
 printf '  %sверсия установщика %s%s\n' "$D" "$VERSION" "$R"
 }
 
+agent_name() { case "$1" in claude) echo "Claude" ;; codex) echo "ChatGPT Codex" ;; esac; }
+
+# =============================================================================
+#  Что уже стоит на сервере
+# =============================================================================
+have_claude() { command -v claude >/dev/null 2>&1; }
+have_codex()  { command -v codex  >/dev/null 2>&1; }
+have_panel()  { command -v cloudcli >/dev/null 2>&1 && [ -f "/etc/systemd/system/${SERVICE}.service" ]; }
+
+claude_logged_in() {
+  have_claude && claude auth status --json 2>/dev/null | jq -e '.loggedIn == true' >/dev/null 2>&1
+}
+codex_logged_in() {
+  have_codex && codex login status 2>/dev/null | head -1 | grep -qiE '^[[:space:]]*logged in'
+}
+
+domain_from_caddy() {
+  [ -f /etc/caddy/Caddyfile ] || return 1
+  grep -oE '^[a-z0-9][a-z0-9.-]*[a-z0-9] \{' /etc/caddy/Caddyfile 2>/dev/null | head -1 | tr -d ' {'
+}
+
 # =============================================================================
 #  0. Проверки
 # =============================================================================
 preflight() {
   [ "$(id -u)" -eq 0 ] || die "Запустите от root. Подключитесь к серверу как: ssh root@ВАШ-IP"
-
   command -v apt-get >/dev/null 2>&1 || die "Нужен Ubuntu или Debian. На этом сервере другая система."
 
   if [ -r /etc/os-release ]; then
@@ -85,19 +113,17 @@ preflight() {
 
   case "$(uname -m)" in
     x86_64|aarch64|arm64) : ;;
-    *) die "Процессор $(uname -m) не поддерживается. Нужен обычный x86_64 сервер." ;;
+    *) die "Процессор $(uname -m) не поддерживается." ;;
   esac
 
-  mkdir -p "$(dirname "$LOG")"
-  : >"$LOG"
-  chmod 600 "$LOG"
+  mkdir -p "$(dirname "$LOG")"; : >"$LOG"; chmod 600 "$LOG"
 
   local mem_mb
   mem_mb=$(awk '/MemTotal/{printf "%d", $2/1024}' /proc/meminfo)
   if [ "$mem_mb" -lt 1800 ]; then
     die "На сервере ${mem_mb} МБ памяти. Нужно минимум 2 ГБ, рекомендуется 4 ГБ."
   elif [ "$mem_mb" -lt 3600 ]; then
-    warn "На сервере ${mem_mb} МБ памяти. Работать будет, но возможны подтормаживания. Рекомендуется 4 ГБ."
+    warn "На сервере ${mem_mb} МБ памяти. Работать будет, но возможны подтормаживания."
   fi
 
   local free_gb
@@ -106,21 +132,43 @@ preflight() {
 }
 
 # =============================================================================
-#  1. Вопросы пользователю
+#  1. Что ставим
 # =============================================================================
-ask_input() {
+ask_agent() {
+  say ""
+  say "  ${B}Какой ИИ будем ставить?${R}"
+  say ""
+  say "    ${B}1${R}  Claude          ${D}нужна подписка Claude Pro${R}"
+  say "    ${B}2${R}  ChatGPT Codex   ${D}нужна подписка ChatGPT Plus${R}"
+  say ""
+  say "  ${D}Ставим одного. Второго при желании доставите потом, просто запустив${R}"
+  say "  ${D}эту же команду ещё раз. Всё встанет на тот же сервер.${R}"
+  say ""
+  local c=""
+  while [ -z "$AGENT" ]; do
+    printf '  Ваш выбор [1/2]: '
+    read -r c || true
+    case "$(echo "${c:-}" | tr -d '[:space:]')" in
+      1|claude|Claude) AGENT="claude" ;;
+      2|codex|Codex|chatgpt) AGENT="codex" ;;
+      *) warn "Введите 1 или 2" ;;
+    esac
+  done
+}
+
+ask_domain_email() {
   if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ]; then
     say ""
-    say "  ${B}Мне нужны два ответа, дальше всё сделаю сам.${R}"
+    say "  ${B}Ещё два ответа, дальше всё сделаю сам.${R}"
     say ""
   fi
 
   while [ -z "$DOMAIN" ]; do
-    printf '  Ваш домен (например claude.moysite.ru): '
+    printf '  Ваш домен (например ai.moysite.ru): '
     read -r DOMAIN || true
     DOMAIN="$(echo "${DOMAIN:-}" | tr -d '[:space:]' | sed -E 's#^https?://##; s#/.*$##' | tr 'A-Z' 'a-z')"
     if ! echo "$DOMAIN" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'; then
-      warn "Это не похоже на домен. Пример правильного: claude.moysite.ru"
+      warn "Это не похоже на домен. Пример правильного: ai.moysite.ru"
       DOMAIN=""
     fi
   done
@@ -138,10 +186,11 @@ ask_input() {
   say ""
   info "домен: ${B}${DOMAIN}${R}"
   info "почта: ${B}${EMAIL}${R}"
+  info "ставим: ${B}$(agent_name "$AGENT")${R}"
 }
 
 # =============================================================================
-#  2. Подкачка (swap)
+#  2. Подкачка
 # =============================================================================
 setup_swap() {
   step "Настраиваю подкачку памяти"
@@ -149,14 +198,8 @@ setup_swap() {
   mem_mb=$(awk '/MemTotal/{printf "%d", $2/1024}' /proc/meminfo)
   swap_kb=$(awk '/SwapTotal/{print $2}' /proc/meminfo)
 
-  if [ "${swap_kb:-0}" -gt 262144 ]; then
-    ok "подкачка уже есть, пропускаю"
-    return
-  fi
-  if [ "$mem_mb" -ge 7000 ]; then
-    ok "памяти достаточно, подкачка не нужна"
-    return
-  fi
+  if [ "${swap_kb:-0}" -gt 262144 ]; then ok "подкачка уже есть, пропускаю"; return; fi
+  if [ "$mem_mb" -ge 7000 ]; then ok "памяти достаточно, подкачка не нужна"; return; fi
 
   if [ ! -f /swapfile ]; then
     run fallocate -l 2G /swapfile || run dd if=/dev/zero of=/swapfile bs=1M count=2048
@@ -169,7 +212,7 @@ setup_swap() {
 }
 
 # =============================================================================
-#  3. Система и зависимости
+#  3. Система, Node, агент, панель
 # =============================================================================
 install_base() {
   step "Обновляю систему и ставлю базовые пакеты"
@@ -188,8 +231,7 @@ install_node() {
   local have=""
   command -v node >/dev/null 2>&1 && have="$(node -v 2>/dev/null | tr -dc '0-9.' | cut -d. -f1)"
   if [ -n "$have" ] && [ "$have" -ge "$NODE_MAJOR" ] 2>/dev/null; then
-    ok "уже стоит Node $(node -v)"
-    return
+    ok "уже стоит Node $(node -v)"; return
   fi
   run bash -c "curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash -"
   run apt-get install -y nodejs
@@ -197,23 +239,33 @@ install_node() {
   ok "Node $(node -v) установлен"
 }
 
-install_claude() {
-  step "Ставлю Claude Code"
-  run npm install -g --no-audit --no-fund "$CLAUDE_PKG@latest"
-  command -v claude >/dev/null 2>&1 || die "Claude Code не установился. Смотрите $LOG"
-  ok "Claude Code $(claude --version 2>/dev/null | head -1)"
+install_agent() {
+  local a="$1"
+  step "Ставлю $(agent_name "$a")"
+  case "$a" in
+    claude)
+      run npm install -g --no-audit --no-fund "${CLAUDE_PKG}@latest"
+      have_claude || die "Claude Code не установился. Смотрите $LOG"
+      ok "Claude Code $(claude --version 2>/dev/null | head -1)"
+      ;;
+    codex)
+      run npm install -g --no-audit --no-fund "${CODEX_PKG}@latest"
+      have_codex || die "Codex не установился. Смотрите $LOG"
+      ok "$(codex --version 2>/dev/null | head -1)"
+      ;;
+  esac
 }
 
 install_panel() {
   step "Ставлю веб-панель"
   info "это самая долгая часть, 2–4 минуты"
-  run npm install -g --no-audit --no-fund "$PANEL_PKG@latest"
+  run npm install -g --no-audit --no-fund "${PANEL_PKG}@latest"
   command -v cloudcli >/dev/null 2>&1 || die "Панель не установилась. Смотрите $LOG"
   ok "панель установлена"
 }
 
 # =============================================================================
-#  4. Ожидание домена
+#  4. Домен
 # =============================================================================
 public_ip() {
   local ip=""
@@ -235,7 +287,7 @@ wait_dns() {
   step "Проверяю домен ${DOMAIN}"
   local myip resolved waited=0 interval=20
   myip="$(public_ip)"
-  [ -n "$myip" ] || die "Не удалось определить IP этого сервера. Проверьте интернет на сервере."
+  [ -n "$myip" ] || die "Не удалось определить IP этого сервера."
   info "IP этого сервера: ${B}${myip}${R}"
 
   while :; do
@@ -251,21 +303,19 @@ wait_dns() {
         info "домен пока не отвечает, жду. Это нормально, ничего делать не надо"
       else
         warn "домен смотрит на ${resolved}, а нужно на ${myip}"
-        info "жду, вдруг запись ещё расходится по интернету"
       fi
     fi
 
     if [ "$waited" -ge 3600 ]; then
       say ""
-      warn "Жду уже час, а домен так и не заработал."
-      warn "Проверьте A-запись у регистратора: имя ${DOMAIN}, значение ${myip}"
-      printf '  Продолжить всё равно (сертификат может не выпуститься)? [y/N]: '
+      warn "Жду уже час, домен так и не заработал."
+      warn "Проверьте A-запись: имя ${DOMAIN}, значение ${myip}"
+      printf '  Продолжить всё равно? [y/N]: '
       local a=""; read -r a || true
-      case "${a:-n}" in y|Y|д|Д) warn "продолжаю без проверки домена"; return ;; *) die "Установка остановлена. Поправьте A-запись и запустите команду заново." ;; esac
+      case "${a:-n}" in y|Y|д|Д) warn "продолжаю без проверки"; return ;; *) die "Поправьте A-запись и запустите заново." ;; esac
     fi
 
-    sleep "$interval"
-    waited=$((waited+interval))
+    sleep "$interval"; waited=$((waited+interval))
     printf '\r      %s·%s жду домен... %s мин   ' "$D" "$R" "$((waited/60))"
   done
 }
@@ -275,14 +325,12 @@ wait_dns() {
 # =============================================================================
 setup_service() {
   step "Настраиваю автозапуск панели"
-  local bin
-  bin="$(command -v cloudcli)"
+  local bin; bin="$(command -v cloudcli)"
+  mkdir -p /root/.claude /root/.codex
 
-  mkdir -p /root/.claude /root/projects
-
-  cat >/etc/systemd/system/claude-panel.service <<EOF
+  cat >/etc/systemd/system/${SERVICE}.service <<EOF
 [Unit]
-Description=CloudCLI — веб-панель Claude Code
+Description=CloudCLI — веб-панель для Claude и Codex
 Documentation=https://cloudcli.ai
 After=network-online.target
 Wants=network-online.target
@@ -305,13 +353,13 @@ WantedBy=multi-user.target
 EOF
 
   run systemctl daemon-reload
-  run systemctl enable claude-panel
-  systemctl restart claude-panel >>"$LOG" 2>&1 || true
+  run systemctl enable ${SERVICE}
+  systemctl restart ${SERVICE} >>"$LOG" 2>&1 || true
 
   local i=0
   until curl -fsS --max-time 3 "http://127.0.0.1:${PANEL_PORT}/api/auth/status" >/dev/null 2>&1; do
     i=$((i+1))
-    [ "$i" -gt 40 ] && die "Панель не поднялась. Смотрите: journalctl -u claude-panel -n 50"
+    [ "$i" -gt 40 ] && die "Панель не поднялась. Смотрите: journalctl -u ${SERVICE} -n 50"
     sleep 2
   done
   ok "панель запущена и работает в фоне"
@@ -323,7 +371,6 @@ EOF
 setup_caddy() {
   step "Настраиваю адрес и HTTPS-сертификат"
 
-  # ---- порты 80/443 не должны быть заняты чужим веб-сервером ----
   local busy=""
   busy="$(ss -ltnp 2>/dev/null | grep -E ':(80|443)[[:space:]]' | grep -v caddy || true)"
   if [ -n "$busy" ]; then
@@ -345,7 +392,6 @@ setup_caddy() {
     run apt-get install -y caddy
   fi
 
-  # каталог логов сразу на пользователя caddy, ещё до записи конфига
   install -d -o caddy -g caddy -m 755 /var/log/caddy 2>/dev/null || mkdir -p /var/log/caddy
 
   mkdir -p /etc/caddy
@@ -374,7 +420,6 @@ ${DOMAIN} {
 }
 EOF
 
-  # автоперезапуск, если Caddy когда-нибудь упадёт сам
   mkdir -p /etc/systemd/system/caddy.service.d
   cat >/etc/systemd/system/caddy.service.d/restart.conf <<'EOF'
 [Service]
@@ -386,25 +431,23 @@ EOF
   caddy validate --config /etc/caddy/Caddyfile >>"$LOG" 2>&1 \
     || die "Caddyfile не прошёл проверку. Смотрите $LOG"
 
-  # ВАЖНО. caddy validate запускается от root и создаёт /var/log/caddy/access.log
-  # с правами root:root 0600. После этого служба под пользователем caddy не может
-  # писать в свой же лог, падает с permission denied, и сайт не открывается.
-  # Поэтому права выставляем ПОСЛЕ валидации, а не до неё.
+  # caddy validate работает от root и создаёт access.log как root:root 0600.
+  # Служба крутится под пользователем caddy и после этого не может писать в лог.
+  # Поэтому права выставляем ПОСЛЕ валидации.
   chown -R caddy:caddy /var/log/caddy 2>/dev/null || true
   chmod 755 /var/log/caddy 2>/dev/null || true
   [ -f /var/log/caddy/access.log ] && { chmod 644 /var/log/caddy/access.log 2>/dev/null || true; }
 
   if id caddy >/dev/null 2>&1; then
     if ! su -s /bin/sh -c 'test -w /var/log/caddy' caddy 2>/dev/null; then
-      die "Пользователь caddy не может писать в /var/log/caddy, веб-сервер не запустится.
-  Выполните вручную: chown -R caddy:caddy /var/log/caddy && chmod 755 /var/log/caddy"
+      die "Пользователь caddy не может писать в /var/log/caddy.
+  Выполните: chown -R caddy:caddy /var/log/caddy && chmod 755 /var/log/caddy"
     fi
   fi
 
   run systemctl enable caddy
   systemctl restart caddy >>"$LOG" 2>&1 || true
 
-  # проверяем ФАКТИЧЕСКИЙ результат, а не то, что команда отработала
   local i=0
   while [ "$i" -lt 10 ]; do
     systemctl is-active --quiet caddy && break
@@ -416,39 +459,9 @@ EOF
     printf '%s  Веб-сервер Caddy не запустился. Последние строки лога:%s\n\n' "$RED" "$R" >&2
     journalctl -u caddy -n 20 --no-pager 2>&1 | sed 's/^/      /' >&2
     say ""
-    die "Без Caddy сайт открываться не будет. Скиньте строки выше в Claude или ChatGPT, вам помогут."
+    die "Без Caddy сайт открываться не будет. Скиньте строки выше в нейросеть, вам помогут."
   fi
   ok "веб-сервер запущен"
-}
-
-# =============================================================================
-#  Финальная проверка: сайт реально открывается
-# =============================================================================
-SITE_OK=0
-verify_site() {
-  step "Проверяю, что сайт реально открывается"
-  info "жду выпуск сертификата, обычно 10–60 секунд"
-
-  local i=0 code=""
-  while [ "$i" -lt 40 ]; do
-    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "https://${DOMAIN}/" 2>/dev/null || true)"
-    case "$code" in
-      2*|3*|401|403) SITE_OK=1; ok "https://${DOMAIN} отвечает, сертификат выпущен"; return ;;
-    esac
-    i=$((i+1)); sleep 3
-  done
-
-  SITE_OK=0
-  say ""
-  warn "сайт https://${DOMAIN} пока не отвечает (код ${code:-нет ответа})"
-  warn "всё остальное установлено и работает, дело только в сертификате или в сети"
-  say ""
-  say "      Что проверить:"
-  say "      1. Домен ${DOMAIN} должен указывать на IP $(public_ip)"
-  say "      2. В панели хостера должны быть открыты входящие порты 80 и 443"
-  say "      3. Иногда Let's Encrypt просто медленный, подождите 5 минут"
-  say ""
-  say "      Потом выполните ${CYN}claude-status${R}, он покажет, поднялось или нет."
 }
 
 # =============================================================================
@@ -456,7 +469,6 @@ verify_site() {
 # =============================================================================
 setup_security() {
   step "Включаю защиту сервера"
-
   run ufw --force reset
   run ufw default deny incoming
   run ufw default allow outgoing
@@ -485,8 +497,10 @@ EOF
 # =============================================================================
 #  8. Учётка в панели
 # =============================================================================
+PANEL_USER="admin"
+PANEL_PASS=""
+
 gen_password() {
-  # без пайпа в head: иначе tr ловит SIGPIPE и падает под pipefail
   local raw
   raw="$(head -c 96 /dev/urandom | base64 | LC_ALL=C tr -dc 'A-HJ-NP-Za-km-z2-9')"
   raw="${raw:0:16}"
@@ -495,26 +509,18 @@ gen_password() {
 
 setup_panel_user() {
   step "Создаю логин и пароль для панели"
-
   local status needs
   status="$(curl -fsS --max-time 5 "http://127.0.0.1:${PANEL_PORT}/api/auth/status" 2>/dev/null || echo '{}')"
   needs="$(echo "$status" | jq -r '.needsSetup // false' 2>/dev/null || echo false)"
 
   if [ "$needs" != "true" ]; then
-    PANEL_USER="admin"
     PANEL_PASS=""
     warn "учётка в панели уже создана раньше, оставляю как есть"
-    if [ -f "$INFO_FILE" ]; then
-      info "старый пароль лежит в ${INFO_FILE}"
-    else
-      info "если забыли пароль, выполните: claude-reset-password"
-    fi
+    [ -f "$INFO_FILE" ] && info "старый пароль лежит в ${INFO_FILE}" || info "забыли пароль? выполните: ai-password"
     return
   fi
 
-  PANEL_USER="admin"
   PANEL_PASS="$(gen_password)"
-
   local resp
   resp="$(curl -fsS --max-time 10 -X POST \
       -H 'Content-Type: application/json' \
@@ -523,7 +529,7 @@ setup_panel_user() {
 
   if [ "$(echo "$resp" | jq -r '.success // false' 2>/dev/null)" != "true" ]; then
     warn "не получилось создать учётку автоматически"
-    warn "ничего страшного: откройте панель в браузере и придумайте логин с паролем сами"
+    warn "откройте панель в браузере и придумайте логин с паролем сами"
     PANEL_PASS=""
     return
   fi
@@ -531,102 +537,102 @@ setup_panel_user() {
 }
 
 # =============================================================================
-#  9. Подключение аккаунта Claude
+#  9. Вход в аккаунт агента
 # =============================================================================
-claude_logged_in() {
-  claude auth status --json 2>/dev/null | jq -e '.loggedIn == true' >/dev/null 2>&1
-}
+# Перенос входа с компьютера пользователя через scp.
+transfer_login() {
+  local src="$1" dst="$2" checkfn="$3" ip=""
+  ip="$(public_ip)"
+  mkdir -p "$(dirname "$dst")"
 
-import_credentials() {
-  say ""
-  say "  На своём компьютере выполните в терминале эту команду"
-  say "  и скопируйте ${B}весь${R} вывод:"
-  say ""
-  say "      ${CYN}cat ~/.claude/.credentials.json${R}"
-  say ""
-  say "  Вставьте сюда и нажмите Enter ${B}два раза${R}:"
-  say ""
+  local tries=0 a=""
+  while [ "$tries" -lt 3 ]; do
+    say ""
+    say "  Откройте ${B}второе окно терминала у себя на компьютере${R}."
+    say "  Не на сервере, а именно у себя. Выполните там одну команду:"
+    say ""
+    say "      ${CYN}scp ${src} root@${ip}:${dst}${R}"
+    say ""
+    say "  Она спросит пароль от сервера, тот же, что вы вводили при входе."
+    say "  Когда отработает, вернитесь сюда."
+    say ""
+    printf '  Сделали? Нажмите Enter: '
+    read -r a || true
 
-  local line buf=""
-  while IFS= read -r line; do
-    [ -z "$line" ] && [ -n "$buf" ] && break
-    [ -z "$line" ] && continue
-    buf="${buf}${line}"
-    if echo "$buf" | jq -e . >/dev/null 2>&1; then break; fi
+    if [ -f "$dst" ]; then
+      chmod 600 "$dst" 2>/dev/null || true
+      if "$checkfn"; then ok "вход перенесён, VPN не понадобился"; return 0; fi
+      warn "файл долетел, но вход не подтвердился"
+    else
+      warn "файла на сервере пока нет"
+    fi
+
+    tries=$((tries+1))
+    [ "$tries" -ge 3 ] && break
+    printf '  Попробовать ещё раз? [Enter — да, н — нет]: '
+    a=""; read -r a || true
+    case "${a:-}" in [нНnN]*) break ;; esac
   done
 
-  if ! echo "$buf" | jq -e . >/dev/null 2>&1; then
-    warn "это не похоже на содержимое файла, пропускаю"
-    return 1
-  fi
-  if ! echo "$buf" | jq -e '.claudeAiOauth // .accessToken // .access_token' >/dev/null 2>&1; then
-    warn "файл прочитался, но данных для входа в нём нет, пропускаю"
-    return 1
-  fi
-
-  mkdir -p /root/.claude
-  printf '%s' "$buf" >/root/.claude/.credentials.json
-  chmod 600 /root/.claude/.credentials.json
-
-  if claude_logged_in; then
-    ok "аккаунт подключён, VPN не понадобился"
-    return 0
-  fi
-  warn "данные записал, но проверка входа не прошла. Попробуйте вариант 1."
+  warn "перенести не получилось"
   return 1
 }
 
-setup_claude_auth() {
-  step "Подключаю ваш аккаунт Claude"
+auth_agent() {
+  local a="$1" name; name="$(agent_name "$a")"
 
-  if claude_logged_in; then
-    ok "аккаунт уже подключён"
-    return
-  fi
+  case "$a" in
+    claude) claude_logged_in && { ok "${name} уже подключён"; return 0; } ;;
+    codex)  codex_logged_in  && { ok "${name} уже подключён"; return 0; } ;;
+  esac
 
   say ""
-  say "  Осталось сказать серверу, каким аккаунтом Claude вы пользуетесь."
-  say "  Это делается ${B}один раз${R}. Два способа:"
+  say "  ${B}Подключаем аккаунт ${name}.${R} Это делается один раз. Два способа:"
   say ""
-  say "    ${B}1${R}  Войти прямо сейчас. Сервер даст ссылку, вы откроете её"
-  say "       в браузере и вставите код обратно."
-  say "       ${D}Нужен включённый VPN на одну минуту.${R}"
+  say "    ${B}1${R}  Перенести вход с компьютера   ${D}VPN не нужен${R}"
+  say "       ${D}подходит, если ${name} уже стоит у вас на компьютере${R}"
+  say "    ${B}2${R}  Войти прямо здесь             ${D}нужен VPN на минуту${R}"
+  say "    ${B}3${R}  Пропустить, подключу позже${R}"
   say ""
-  say "    ${B}2${R}  Перенести вход с вашего компьютера."
-  say "       ${D}Подходит, если Claude Code уже стоит у вас на компьютере.${R}"
-  say "       ${D}VPN не нужен вообще.${R}"
-  say ""
-  say "    ${B}3${R}  Пропустить, подключу позже командой ${CYN}claude-login${R}"
-  say ""
-
-  local choice=""
+  local c=""
   printf '  Ваш выбор [1/2/3]: '
-  read -r choice || true
+  read -r c || true
 
-  case "${choice:-1}" in
-    2)
-      import_credentials || {
-        say ""
-        say "  Пробуем первый способ."
-        claude auth login --claudeai || warn "вход не завершён, потом выполните: claude-login"
-      }
-      ;;
-    3)
-      warn "пропускаю. Панель откроется, но Claude отвечать не будет"
-      info "когда будете готовы, выполните на сервере: ${CYN}claude-login${R}"
-      ;;
+  case "${c:-1}" in
+    2) browser_login "$a" ;;
+    3) warn "${name} пока не подключён, потом выполните: ai-login" ; return 0 ;;
     *)
-      say ""
-      say "  ${YLW}Включите VPN в браузере, дальше откроется ссылка.${R}"
-      say ""
-      claude auth login --claudeai || warn "вход не завершён, потом выполните: claude-login"
+      # тильда собирается через переменную, чтобы её не раскрыл наш шелл:
+      # раскрывать её должен шелл пользователя на его компьютере
+      local HOME_MARK='~'
+      case "$a" in
+        claude) transfer_login "${HOME_MARK}/.claude/.credentials.json" "/root/.claude/.credentials.json" claude_logged_in || browser_login "$a" ;;
+        codex)  transfer_login "${HOME_MARK}/.codex/auth.json"          "/root/.codex/auth.json"          codex_logged_in  || browser_login "$a" ;;
+      esac
       ;;
   esac
 
-  if claude_logged_in; then
-    ok "аккаунт Claude подключён"
-    systemctl restart claude-panel >>"$LOG" 2>&1 || true
-  fi
+  case "$a" in
+    claude) claude_logged_in && ok "аккаунт ${name} подключён" || warn "${name} не подключён, потом выполните: ai-login" ;;
+    codex)  codex_logged_in  && ok "аккаунт ${name} подключён" || warn "${name} не подключён, потом выполните: ai-login" ;;
+  esac
+  return 0
+}
+
+browser_login() {
+  say ""
+  say "  ${YLW}Включите VPN в браузере, сейчас появится ссылка.${R}"
+  say ""
+  case "$1" in
+    claude) claude auth login --claudeai || warn "вход не завершён" ;;
+    codex)  mkdir -p /root/.codex; codex login --device-auth || warn "вход не завершён" ;;
+  esac
+}
+
+setup_agent_auth() {
+  step "Подключаю ваш аккаунт"
+  auth_agent "$AGENT"
+  systemctl restart ${SERVICE} >>"$LOG" 2>&1 || true
 }
 
 # =============================================================================
@@ -635,16 +641,15 @@ setup_claude_auth() {
 install_helpers() {
   step "Ставлю команды-помощники"
 
-  cat >/usr/local/bin/claude-status <<EOF
+  cat >/usr/local/bin/ai-status <<EOF
 #!/usr/bin/env bash
 export LC_ALL=C.UTF-8 2>/dev/null || true
 D="\033[2m"; R="\033[0m"; G="\033[32m"; Y="\033[33m"; B="\033[1m"
 DOMAIN="${DOMAIN}"
 PORT="${PANEL_PORT}"
 EOF
-  cat >>/usr/local/bin/claude-status <<'EOF'
+  cat >>/usr/local/bin/ai-status <<'EOF'
 
-# выравниваем по символам, а не по байтам: кириллица весит 2 байта
 line() {
   local label="$1" pad="" n=$(( 26 - ${#1} ))
   [ "$n" -gt 0 ] && pad="$(printf '%*s' "$n" '')"
@@ -653,17 +658,31 @@ line() {
 yn() { if [ "$1" = "0" ]; then printf "${G}работает${R}"; else printf "${Y}НЕ работает${R}"; fi; }
 
 echo ""
-printf "  ${B}Claude на своём сервере — состояние${R}\n"
+printf "  ${B}Свой ИИ на сервере — состояние${R}\n"
 echo "  ------------------------------------------------"
 
 systemctl is-active --quiet claude-panel; line "Веб-панель" "$(yn $?)"
 systemctl is-active --quiet caddy;        line "Веб-сервер (HTTPS)" "$(yn $?)"
 systemctl is-active --quiet fail2ban;     line "Защита fail2ban" "$(yn $?)"
 
-if claude auth status --json 2>/dev/null | grep -q '"loggedIn": *true'; then
-  line "Аккаунт Claude" "${G}подключён${R}"
+if command -v claude >/dev/null 2>&1; then
+  if claude auth status --json 2>/dev/null | grep -q '"loggedIn": *true'; then
+    line "Claude" "${G}подключён${R}"
+  else
+    line "Claude" "${Y}не подключён (ai-login)${R}"
+  fi
 else
-  line "Аккаунт Claude" "${Y}НЕ подключён — выполните claude-login${R}"
+  line "Claude" "${D}не установлен${R}"
+fi
+
+if command -v codex >/dev/null 2>&1; then
+  if codex login status 2>/dev/null | head -1 | grep -qiE '^[[:space:]]*logged in'; then
+    line "ChatGPT Codex" "${G}подключён${R}"
+  else
+    line "ChatGPT Codex" "${Y}не подключён (ai-login)${R}"
+  fi
+else
+  line "ChatGPT Codex" "${D}не установлен${R}"
 fi
 
 CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "https://${DOMAIN}/" 2>/dev/null)
@@ -672,65 +691,94 @@ case "$CODE" in
   *)             line "Адрес https://${DOMAIN}" "${Y}не отвечает (код ${CODE:-нет})${R}" ;;
 esac
 
+echo "  ------------------------------------------------"
+line "Память" "$(free -h | awk '/Mem:/{print $3" из "$2}')"
+line "Диск" "$(df -h / | awk 'NR==2{print $3" из "$2" (свободно "$4")"}')"
+
 if ! systemctl is-active --quiet caddy; then
   echo ""
   printf "  ${Y}Веб-сервер лежит, поэтому сайт и не открывается.${R}\n"
   echo "  Частая причина: у пользователя caddy нет прав на свой лог."
-  echo "  Попробуйте:"
   echo "    chown -R caddy:caddy /var/log/caddy && chmod 755 /var/log/caddy"
-  echo "    systemctl restart caddy && systemctl status caddy --no-pager | head -5"
-  echo "  Если не помогло, смотрите: journalctl -u caddy -n 30 --no-pager"
+  echo "    systemctl restart caddy"
+  echo "  Подробности: journalctl -u caddy -n 30 --no-pager"
 fi
 
-echo "  ------------------------------------------------"
-line "Claude Code" "$(claude --version 2>/dev/null | head -1)"
-line "Панель" "$(cloudcli version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-line "Память" "$(free -h | awk '/Mem:/{print $3" из "$2}')"
-line "Диск" "$(df -h / | awk 'NR==2{print $3" из "$2" (свободно "$4")"}')"
 echo ""
-echo "  Логи панели:  journalctl -u claude-panel -n 50"
+echo "  Логи панели:  tail -50 /var/log/claude-panel.log"
 echo "  Логи Caddy:   journalctl -u caddy -n 50"
 echo ""
 EOF
 
-  cat >/usr/local/bin/claude-update <<'EOF'
+  cat >/usr/local/bin/ai-update <<'EOF'
 #!/usr/bin/env bash
 set -e
 echo ""
-echo "  Обновляю Claude Code и панель..."
-npm install -g --no-audit --no-fund @anthropic-ai/claude-code@latest
+echo "  Обновляю то, что установлено..."
+command -v claude >/dev/null 2>&1 && npm install -g --no-audit --no-fund @anthropic-ai/claude-code@latest
+command -v codex  >/dev/null 2>&1 && npm install -g --no-audit --no-fund @openai/codex@latest
 npm install -g --no-audit --no-fund @cloudcli-ai/cloudcli@latest
 systemctl restart claude-panel
 sleep 3
 echo ""
 echo "  Готово."
-claude-status
+ai-status
 EOF
 
-  cat >/usr/local/bin/claude-login <<'EOF'
+  cat >/usr/local/bin/ai-login <<'EOF'
 #!/usr/bin/env bash
-echo ""
-echo "  Сейчас откроется ссылка для входа в аккаунт Claude."
-echo "  Включите VPN в браузере, войдите и вставьте код обратно сюда."
-echo ""
-claude auth login --claudeai
-if claude auth status --json 2>/dev/null | grep -q '"loggedIn": *true'; then
-  systemctl restart claude-panel
+HAS_C=0; HAS_X=0
+command -v claude >/dev/null 2>&1 && HAS_C=1
+command -v codex  >/dev/null 2>&1 && HAS_X=1
+
+if [ "$HAS_C" = "0" ] && [ "$HAS_X" = "0" ]; then
+  echo ""; echo "  На сервере не установлен ни один ИИ."; echo ""; exit 1
+fi
+
+TARGET=""
+if [ "$HAS_C" = "1" ] && [ "$HAS_X" = "1" ]; then
   echo ""
-  echo "  Аккаунт подключён. Панель перезапущена."
+  echo "  В какой аккаунт входим?"
+  echo "    1  Claude"
+  echo "    2  ChatGPT Codex"
+  echo ""
+  printf "  Ваш выбор [1/2]: "
+  read -r c
+  case "$c" in 2) TARGET=codex ;; *) TARGET=claude ;; esac
+elif [ "$HAS_C" = "1" ]; then TARGET=claude
+else TARGET=codex
+fi
+
+IP=$(curl -4 -fsS --max-time 8 https://api.ipify.org 2>/dev/null)
+echo ""
+if [ "$TARGET" = "claude" ]; then
+  echo "  Способ без VPN: выполните у СЕБЯ на компьютере"
+  echo "    scp ~/.claude/.credentials.json root@${IP}:/root/.claude/.credentials.json"
 else
-  echo ""
-  echo "  Вход не завершён. Попробуйте ещё раз."
+  echo "  Способ без VPN: выполните у СЕБЯ на компьютере"
+  echo "    scp ~/.codex/auth.json root@${IP}:/root/.codex/auth.json"
 fi
 echo ""
+printf "  Или войти здесь через браузер (нужен VPN)? [y/N]: "
+read -r a
+case "${a:-n}" in
+  y|Y|д|Д)
+    if [ "$TARGET" = "claude" ]; then claude auth login --claudeai
+    else mkdir -p /root/.codex; codex login --device-auth; fi
+    ;;
+  *) echo "  Хорошо. После переноса файла выполните: systemctl restart claude-panel" ;;
+esac
+systemctl restart claude-panel 2>/dev/null
+echo ""
+ai-status
 EOF
 
-  cat >/usr/local/bin/claude-reset-password <<EOF
+  cat >/usr/local/bin/ai-password <<EOF
 #!/usr/bin/env bash
 set -e
 PORT="${PANEL_PORT}"
 EOF
-  cat >>/usr/local/bin/claude-reset-password <<'EOF'
+  cat >>/usr/local/bin/ai-password <<'EOF'
 echo ""
 echo "  Это сотрёт все учётки панели и создаст новую."
 printf "  Продолжить? [y/N]: "
@@ -742,7 +790,6 @@ sleep 2
 rm -f /root/.cloudcli/auth.db
 systemctl start claude-panel
 
-# ждём, пока панель поднимется И отдаст needsSetup=true
 READY=""
 for i in $(seq 1 45); do
   S=$(curl -fsS --max-time 3 "http://127.0.0.1:${PORT}/api/auth/status" 2>/dev/null || true)
@@ -750,9 +797,7 @@ for i in $(seq 1 45); do
   sleep 2
 done
 if [ -z "$READY" ]; then
-  echo ""
-  echo "  Панель не сбросилась. Проверьте: journalctl -u claude-panel -n 30"
-  exit 1
+  echo ""; echo "  Панель не сбросилась. Смотрите: journalctl -u claude-panel -n 30"; exit 1
 fi
 
 RAW=$(head -c 96 /dev/urandom | base64 | LC_ALL=C tr -dc 'A-HJ-NP-Za-km-z2-9')
@@ -763,20 +808,17 @@ RESP=$(curl -fsS -X POST -H 'Content-Type: application/json' \
   "http://127.0.0.1:${PORT}/api/auth/register" || echo '{}')
 
 if echo "$RESP" | grep -q '"success":true'; then
-  echo ""
-  echo "  Новый логин:  admin"
-  echo "  Новый пароль: ${PASS}"
-  echo ""
+  echo ""; echo "  Новый логин:  admin"; echo "  Новый пароль: ${PASS}"; echo ""
   sed -i "s/^  Пароль:.*/  Пароль: ${PASS}/" /root/claude-server-info.txt 2>/dev/null || true
 else
   echo "  Не получилось. Откройте панель в браузере и создайте учётку вручную."
 fi
 EOF
 
-  cat >/usr/local/bin/claude-uninstall <<'EOF'
+  cat >/usr/local/bin/ai-uninstall <<'EOF'
 #!/usr/bin/env bash
 echo ""
-echo "  Это удалит панель, Claude Code, Caddy и все настройки."
+echo "  Это удалит панель, всех ИИ, Caddy и все настройки."
 printf "  Точно удалить? Напишите 'удалить': "
 read -r a
 [ "$a" = "удалить" ] || { echo "  Отменено."; exit 0; }
@@ -785,26 +827,66 @@ systemctl disable --now claude-panel 2>/dev/null || true
 systemctl disable --now caddy 2>/dev/null || true
 rm -f /etc/systemd/system/claude-panel.service
 systemctl daemon-reload
-npm uninstall -g @cloudcli-ai/cloudcli @anthropic-ai/claude-code 2>/dev/null || true
+npm uninstall -g @cloudcli-ai/cloudcli @anthropic-ai/claude-code @openai/codex 2>/dev/null || true
 apt-get purge -y caddy 2>/dev/null || true
 rm -f /etc/caddy/Caddyfile /root/claude-server-info.txt
-rm -f /usr/local/bin/claude-status /usr/local/bin/claude-update /usr/local/bin/claude-login /usr/local/bin/claude-reset-password
+rm -f /usr/local/bin/ai-status /usr/local/bin/ai-update /usr/local/bin/ai-login \
+      /usr/local/bin/ai-password \
+      /usr/local/bin/claude-status /usr/local/bin/claude-update \
+      /usr/local/bin/claude-login /usr/local/bin/claude-reset-password /usr/local/bin/codex-login
 
 echo ""
-printf "  Удалить также ваши проекты и переписки (/root/.claude, /root/.cloudcli)? [y/N]: "
+printf "  Удалить также ваши проекты и переписки? [y/N]: "
 read -r b
-case "${b:-n}" in y|Y|д|Д) rm -rf /root/.claude /root/.cloudcli; echo "  Удалено." ;; *) echo "  Оставил на месте." ;; esac
+case "${b:-n}" in y|Y|д|Д) rm -rf /root/.claude /root/.codex /root/.cloudcli; echo "  Удалено." ;; *) echo "  Оставил на месте." ;; esac
 
-rm -f /usr/local/bin/claude-uninstall
+rm -f /usr/local/bin/ai-uninstall
 echo ""
 echo "  Готово. Сервер можно удалять у хостера."
 echo ""
 EOF
 
-  chmod +x /usr/local/bin/claude-status /usr/local/bin/claude-update \
-           /usr/local/bin/claude-login /usr/local/bin/claude-uninstall \
-           /usr/local/bin/claude-reset-password
-  ok "команды claude-status, claude-update, claude-login, claude-uninstall готовы"
+  chmod +x /usr/local/bin/ai-status /usr/local/bin/ai-update /usr/local/bin/ai-login \
+           /usr/local/bin/ai-password /usr/local/bin/ai-uninstall
+
+  # старые имена продолжают работать
+  ln -sf /usr/local/bin/ai-status   /usr/local/bin/claude-status
+  ln -sf /usr/local/bin/ai-update   /usr/local/bin/claude-update
+  ln -sf /usr/local/bin/ai-login    /usr/local/bin/claude-login
+  ln -sf /usr/local/bin/ai-login    /usr/local/bin/codex-login
+  ln -sf /usr/local/bin/ai-password /usr/local/bin/claude-reset-password
+  ln -sf /usr/local/bin/ai-uninstall /usr/local/bin/claude-uninstall
+
+  ok "команды ai-status, ai-login, ai-update, ai-uninstall готовы"
+}
+
+# =============================================================================
+#  11. Финальная проверка
+# =============================================================================
+verify_site() {
+  step "Проверяю, что сайт реально открывается"
+  info "жду выпуск сертификата, обычно 10–60 секунд"
+
+  local i=0 code=""
+  while [ "$i" -lt 40 ]; do
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "https://${DOMAIN}/" 2>/dev/null || true)"
+    case "$code" in
+      2*|3*|401|403) SITE_OK=1; ok "https://${DOMAIN} отвечает, сертификат выпущен"; return ;;
+    esac
+    i=$((i+1)); sleep 3
+  done
+
+  SITE_OK=0
+  say ""
+  warn "сайт https://${DOMAIN} пока не отвечает (код ${code:-нет ответа})"
+  warn "всё остальное установлено и работает"
+  say ""
+  say "      Что проверить:"
+  say "      1. Домен ${DOMAIN} должен указывать на IP $(public_ip)"
+  say "      2. В панели хостера должны быть открыты входящие порты 80 и 443"
+  say "      3. Иногда Let's Encrypt просто медленный, подождите 5 минут"
+  say ""
+  say "      Потом выполните ${CYN}ai-status${R}."
 }
 
 # =============================================================================
@@ -815,7 +897,6 @@ finish() {
   if [ -n "${PANEL_PASS:-}" ]; then
     pass_line="  Пароль: ${PANEL_PASS}"
   else
-    # повторный запуск: не затираем ранее сохранённый пароль
     [ -f "$INFO_FILE" ] && old_pass="$(grep -m1 '^  Пароль: ' "$INFO_FILE" | sed 's/^  Пароль: //')"
     case "$old_pass" in
       ""|"тот, что вы задали раньше") pass_line="  Пароль: тот, что вы задали раньше" ;;
@@ -823,31 +904,42 @@ finish() {
     esac
   fi
 
+  local agents=""
+  claude_logged_in && agents="Claude"
+  codex_logged_in  && agents="${agents:+$agents и }ChatGPT Codex"
+  [ -z "$agents" ] && agents="пока никто"
+
   {
-    echo "Claude на своём сервере"
+    echo "Свой ИИ на своём сервере"
     echo "========================================"
     echo "  Адрес:  https://${DOMAIN}"
-    echo "  Логин:  ${PANEL_USER:-admin}"
+    echo "  Логин:  ${PANEL_USER}"
     echo "$pass_line"
+    echo "  Подключено: ${agents}"
     echo "========================================"
     echo "Команды на сервере:"
-    echo "  claude-status          проверить, всё ли работает"
-    echo "  claude-update          обновить до свежих версий"
-    echo "  claude-login           подключить аккаунт Claude"
-    echo "  claude-reset-password  сбросить пароль от панели"
-    echo "  claude-uninstall       удалить всё"
+    echo "  ai-status      проверить, всё ли работает"
+    echo "  ai-login       подключить аккаунт Claude или Codex"
+    echo "  ai-update      обновить до свежих версий"
+    echo "  ai-password    сбросить пароль от панели"
+    echo "  ai-uninstall   удалить всё"
+    echo ""
+    echo "Чтобы доставить второго ИИ, просто запустите установщик ещё раз."
   } >"$INFO_FILE"
   chmod 600 "$INFO_FILE"
-
-  local auth_note=""
-  claude_logged_in || auth_note=$'\n  '"${YLW}Аккаунт Claude пока не подключён.${R}"$'\n  Выполните на сервере: '"${CYN}claude-login${R}"
 
   local head_color head_text
   if [ "${SITE_OK:-0}" = "1" ]; then
     head_color="$GRN"; head_text="                    ВСЁ ГОТОВО                        "
   else
     head_color="$YLW"; head_text="        УСТАНОВЛЕНО, НО САЙТ ЕЩЁ НЕ ОТВЕЧАЕТ          "
-    auth_note="${auth_note}"$'\n  '"${YLW}Сайт пока не открывается. Что делать, написано выше.${R}"
+  fi
+
+  local other=""
+  if have_claude && ! have_codex; then
+    other=$'\n  '"${D}Хотите добавить ChatGPT Codex? Запустите эту же команду ещё раз.${R}"
+  elif have_codex && ! have_claude; then
+    other=$'\n  '"${D}Хотите добавить Claude? Запустите эту же команду ещё раз.${R}"
   fi
 
   cat <<EOF
@@ -859,19 +951,21 @@ ${head_color}  ╔════════════════════�
   ╚══════════════════════════════════════════════════════╝${R}
 
   ${B}Адрес:${R}  ${CYN}https://${DOMAIN}${R}
-  ${B}Логин:${R}  ${PANEL_USER:-admin}
+  ${B}Логин:${R}  ${PANEL_USER}
   ${B}${pass_line#  }${R}
+
+  ${B}Подключено:${R} ${agents}
 
   ${YLW}Сохраните пароль прямо сейчас.${R}
   Копия лежит на сервере в файле ${D}${INFO_FILE}${R}
-${auth_note}
+${other}
 
   ${D}Команды на будущее:${R}
-  ${D}claude-status${R}          проверить, всё ли работает
-  ${D}claude-update${R}          обновить до свежих версий
-  ${D}claude-login${R}           подключить аккаунт Claude
-  ${D}claude-reset-password${R}  сбросить пароль от панели
-  ${D}claude-uninstall${R}       удалить всё
+  ${D}ai-status${R}      проверить, всё ли работает
+  ${D}ai-login${R}       подключить аккаунт
+  ${D}ai-update${R}      обновить до свежих версий
+  ${D}ai-password${R}    сбросить пароль от панели
+  ${D}ai-uninstall${R}   удалить всё
 
   Откройте адрес в браузере и пользуйтесь. VPN не нужен.
 
@@ -879,14 +973,75 @@ EOF
 }
 
 # =============================================================================
+#  Ветка: доставить второго ИИ на уже готовый сервер
+# =============================================================================
+add_agent_flow() {
+  local missing=""
+  if have_claude && have_codex; then
+    say ""
+    ok "На этом сервере уже стоят и Claude, и ChatGPT Codex"
+    say ""
+    say "  Ничего доставлять не нужно. Проверю, что всё работает."
+    STEP_TOTAL=1
+    verify_site
+    finish
+    exit 0
+  fi
+
+  if have_claude; then missing="codex"; else missing="claude"; fi
+
+  say ""
+  say "  ${B}На этом сервере уже стоит $(agent_name "$( [ "$missing" = "codex" ] && echo claude || echo codex )").${R}"
+  say ""
+  printf '  Добавить %s рядом? [y/N]: ' "$(agent_name "$missing")"
+  local a=""; read -r a || true
+  case "${a:-n}" in
+    y|Y|д|Д|да) : ;;
+    *)
+      say ""
+      say "  Хорошо, ничего не меняю. Проверю, что всё работает."
+      STEP_TOTAL=1
+      verify_site
+      finish
+      exit 0
+      ;;
+  esac
+
+  AGENT="$missing"
+  STEP_TOTAL=4
+
+  install_agent "$AGENT"
+  setup_agent_auth
+  install_helpers
+  verify_site
+  finish
+  exit 0
+}
+
+# =============================================================================
 main() {
   banner
   preflight
-  ask_input
+
+  if have_panel; then
+
+    DOMAIN="${DOMAIN:-$(domain_from_caddy || true)}"
+    if [ -z "$DOMAIN" ]; then
+      warn "не смог прочитать домен из настроек Caddy"
+      ask_domain_email
+    else
+      info "домен этого сервера: ${B}${DOMAIN}${R}"
+    fi
+    add_agent_flow
+  fi
+
+  ask_agent
+  ask_domain_email
+
   setup_swap
   install_base
   install_node
-  install_claude
+  install_agent "$AGENT"
   install_panel
   wait_dns
   setup_service
@@ -894,7 +1049,7 @@ main() {
   setup_security
   setup_panel_user
   install_helpers
-  setup_claude_auth
+  setup_agent_auth
   verify_site
   finish
 }

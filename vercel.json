@@ -6,21 +6,71 @@
     {
       "source": "/install.sh",
       "headers": [
-        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
-        { "key": "Cache-Control", "value": "public, max-age=60, must-revalidate" },
-        { "key": "Access-Control-Allow-Origin", "value": "*" }
+        {
+          "key": "Content-Type",
+          "value": "text/plain; charset=utf-8"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=60, must-revalidate"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
+    },
+    {
+      "source": "/install-ai.sh",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "text/plain; charset=utf-8"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=60, must-revalidate"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
       ]
     },
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
       ]
     }
   ],
   "redirects": [
-    { "source": "/install", "destination": "/install.sh", "permanent": false },
-    { "source": "/i", "destination": "/install.sh", "permanent": false }
+    {
+      "source": "/install",
+      "destination": "/install.sh",
+      "permanent": false
+    },
+    {
+      "source": "/i",
+      "destination": "/install.sh",
+      "permanent": false
+    },
+    {
+      "source": "/ai",
+      "destination": "/install-ai.sh",
+      "permanent": false
+    },
+    {
+      "source": "/install-ai",
+      "destination": "/install-ai.sh",
+      "permanent": false
+    }
   ]
 }
