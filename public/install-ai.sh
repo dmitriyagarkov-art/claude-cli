@@ -16,7 +16,7 @@
 
 set -Eeuo pipefail
 
-VERSION="2.0.0"
+VERSION="2.1.0"
 PANEL_PORT="${PANEL_PORT:-3001}"
 CLAUDE_PKG="@anthropic-ai/claude-code"
 CODEX_PKG="@openai/codex"
@@ -25,6 +25,7 @@ NODE_MAJOR=22
 LOG="/var/log/claude-server-install.log"
 INFO_FILE="/root/claude-server-info.txt"
 SERVICE="claude-panel"
+WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 
 DOMAIN="${DOMAIN:-}"
 EMAIL="${EMAIL:-}"
@@ -323,6 +324,20 @@ wait_dns() {
 # =============================================================================
 #  5. Панель как служба
 # =============================================================================
+# Панель разрешает создавать проекты только внутри своего "корня рабочих папок".
+# По умолчанию это домашний каталог, а у root это /root, который она же сама
+# считает системным и запрещает. Получается замкнутый круг: создать проект
+# нельзя нигде. Поэтому явно назначаем отдельный каталог под проекты.
+ensure_workspace() {
+  mkdir -p "$WORKSPACE_DIR"
+  mkdir -p "/etc/systemd/system/${SERVICE}.service.d"
+  cat >"/etc/systemd/system/${SERVICE}.service.d/workspace.conf" <<EOF
+[Service]
+Environment=WORKSPACES_ROOT=${WORKSPACE_DIR}
+EOF
+  run systemctl daemon-reload
+}
+
 setup_service() {
   step "Настраиваю автозапуск панели"
   local bin; bin="$(command -v cloudcli)"
@@ -341,6 +356,7 @@ User=root
 Environment=NODE_ENV=production
 Environment=HOME=/root
 Environment=SERVER_PORT=${PANEL_PORT}
+Environment=WORKSPACES_ROOT=${WORKSPACE_DIR}
 WorkingDirectory=/root
 ExecStart=${bin} start
 Restart=always
@@ -352,7 +368,7 @@ StandardError=append:/var/log/claude-panel.log
 WantedBy=multi-user.target
 EOF
 
-  run systemctl daemon-reload
+  ensure_workspace
   run systemctl enable ${SERVICE}
   systemctl restart ${SERVICE} >>"$LOG" 2>&1 || true
 
@@ -924,6 +940,10 @@ finish() {
     echo "  ai-password    сбросить пароль от панели"
     echo "  ai-uninstall   удалить всё"
     echo ""
+    echo ""
+    echo "Проекты создавайте внутри папки ${WORKSPACE_DIR}"
+    echo "например ${WORKSPACE_DIR}/moy-proekt"
+    echo ""
     echo "Чтобы доставить второго ИИ, просто запустите установщик ещё раз."
   } >"$INFO_FILE"
   chmod 600 "$INFO_FILE"
@@ -967,6 +987,10 @@ ${other}
   ${D}ai-password${R}    сбросить пароль от панели
   ${D}ai-uninstall${R}   удалить всё
 
+  ${B}Первый проект:${R} в панели нажмите «Create New Project» и в поле
+  Workspace Path впишите ${CYN}${WORKSPACE_DIR}/moy-proekt${R}
+  ${D}Проекты должны лежать внутри ${WORKSPACE_DIR}, это папка для ваших файлов.${R}
+
   Откройте адрес в браузере и пользуйтесь. VPN не нужен.
 
 EOF
@@ -1009,6 +1033,9 @@ add_agent_flow() {
 
   AGENT="$missing"
   STEP_TOTAL=4
+
+  ensure_workspace
+  systemctl restart ${SERVICE} >>"$LOG" 2>&1 || true
 
   install_agent "$AGENT"
   setup_agent_auth
