@@ -563,11 +563,17 @@ transfer_login() {
 
   local tries=0 a=""
   while [ "$tries" -lt 3 ]; do
+    local win_src="${src#\~/}"; win_src="${win_src//\//\\}"
     say ""
     say "  Откройте ${B}второе окно терминала у себя на компьютере${R}."
-    say "  Не на сервере, а именно у себя. Выполните там одну команду:"
+    say "  Не на сервере, а именно у себя. Выполните там команду:"
     say ""
+    say "  ${B}Mac или Linux:${R}"
     say "      ${CYN}scp ${src} root@${ip}:${dst}${R}"
+    say ""
+    say "  ${B}Windows (PowerShell), две строки по очереди:${R}"
+    say "      ${CYN}cd \$env:USERPROFILE${R}"
+    say "      ${CYN}scp ${win_src} root@${ip}:${dst}${R}"
     say ""
     say "  Она спросит пароль от сервера, тот же, что вы вводили при входе."
     say "  Когда отработает, вернитесь сюда."
@@ -768,12 +774,18 @@ fi
 IP=$(curl -4 -fsS --max-time 8 https://api.ipify.org 2>/dev/null)
 echo ""
 if [ "$TARGET" = "claude" ]; then
-  echo "  Способ без VPN: выполните у СЕБЯ на компьютере"
-  echo "    scp ~/.claude/.credentials.json root@${IP}:/root/.claude/.credentials.json"
+  SRC_NIX="~/.claude/.credentials.json"; SRC_WIN=".claude\\.credentials.json"; DST="/root/.claude/.credentials.json"
 else
-  echo "  Способ без VPN: выполните у СЕБЯ на компьютере"
-  echo "    scp ~/.codex/auth.json root@${IP}:/root/.codex/auth.json"
+  SRC_NIX="~/.codex/auth.json";          SRC_WIN=".codex\\auth.json";          DST="/root/.codex/auth.json"
 fi
+echo "  Способ без VPN: выполните у СЕБЯ на компьютере"
+echo ""
+echo "  Mac или Linux:"
+echo "    scp ${SRC_NIX} root@${IP}:${DST}"
+echo ""
+echo "  Windows (PowerShell), две строки по очереди:"
+echo "    cd \$env:USERPROFILE"
+echo "    scp ${SRC_WIN} root@${IP}:${DST}"
 echo ""
 printf "  Или войти здесь через браузер (нужен VPN)? [y/N]: "
 read -r a
