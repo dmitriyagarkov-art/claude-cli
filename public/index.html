@@ -279,12 +279,10 @@ footer { border-top: 1px solid var(--border); padding: 36px 0 44px; }
       </div>
     </div>
 
-    <div class="shot">
-      <div class="shot-head"><span class="shot-tag">Скриншот 1</span><span class="shot-title">Как выглядит панель</span></div>
-      <p>Скрин панели в браузере: слева список проектов, по центру живой диалог. Лучше рабочий диалог, а не пустой экран.</p>
-      <p>Вторым кадром рядом положить эту же панель на телефоне, чтобы сразу было видно: работает везде.</p>
-    </div>
-    <p class="shot-cap">Панель на компьютере и на телефоне</p>
+    <figure class="article-img">
+      <img src="images/14-panel-overview.jpg" alt="Так выглядит панель: слева проекты, справа переписка" loading="lazy">
+      <figcaption>Так выглядит панель: слева проекты, справа переписка</figcaption>
+    </figure>
 
     <div class="divider">✦</div>
 
@@ -381,20 +379,21 @@ footer { border-top: 1px solid var(--border); padding: 36px 0 44px; }
       <li><b>Доступ:</b> по паролю. Если предлагают SSH-ключи, просто пропускаем, они нам не нужны</li>
     </ul>
 
-    <div class="shot">
-      <div class="shot-head"><span class="shot-tag">Скриншот 2</span><span class="shot-title">Форма создания сервера</span></div>
-      <p>Экран заказа сервера с уже выбранными Ubuntu 24.04, локацией и тарифом на 4 ГБ. Обвести красным эти три места.</p>
-    </div>
-    <p class="shot-cap">Создаём сервер</p>
+    <figure class="article-img">
+      <img src="images/01-server-cabinet.jpg" alt="Личный кабинет хостинга" loading="lazy">
+      <figcaption>Личный кабинет хостинга</figcaption>
+    </figure>
+    <figure class="article-img">
+      <img src="images/02-server-order.jpg" alt="Раздел «Серверы» и кнопка «Заказать»" loading="lazy">
+      <figcaption>Раздел «Серверы» и кнопка «Заказать»</figcaption>
+    </figure>
+    <figure class="article-img">
+      <img src="images/03-server-tariff.jpg" alt="Выбираем локацию и тариф от 4 ГБ памяти" loading="lazy">
+      <figcaption>Выбираем локацию и тариф от 4 ГБ памяти</figcaption>
+    </figure>
 
     <p>Оплачиваем. Через пару минут на почту приходит письмо, а в личном кабинете появляется сервер.</p>
     <p>Из письма нам нужны <b>две вещи</b>: IP-адрес (набор цифр через точки) и пароль root.</p>
-
-    <div class="shot">
-      <div class="shot-head"><span class="shot-tag">Скриншот 3</span><span class="shot-title">Письмо с данными сервера</span></div>
-      <p>Письмо от хостинга с IP-адресом и паролем. Сами цифры и пароль обязательно замазать, а поля подписать стрелками: «вот это IP», «вот это пароль».</p>
-    </div>
-    <p class="shot-cap">Письмо с доступами. Не удаляйте его</p>
 
     <!-- ШАГ 2 -->
     <h3 id="step2"><span class="badge">Шаг 2</span><br>Покупаем домен</h3>
@@ -409,11 +408,14 @@ footer { border-top: 1px solid var(--border); padding: 36px 0 44px; }
       </div>
     </div>
 
-    <div class="shot">
-      <div class="shot-head"><span class="shot-tag">Скриншот 4</span><span class="shot-title">Покупка домена</span></div>
-      <p>Экран регистратора: введено имя домена, показана цена, кнопка «Купить». Стрелкой отметить поле ввода имени.</p>
-    </div>
-    <p class="shot-cap">Покупаем домен</p>
+    <figure class="article-img">
+      <img src="images/05-domain-register.jpg" alt="reg.ru, «Зарегистрировать новый домен»" loading="lazy">
+      <figcaption>reg.ru, «Зарегистрировать новый домен»</figcaption>
+    </figure>
+    <figure class="article-img">
+      <img src="images/06-domain-check.jpg" alt="Проверяем, свободно ли имя" loading="lazy">
+      <figcaption>Проверяем, свободно ли имя</figcaption>
+    </figure>
 
     <!-- ШАГ 3 -->
     <h3 id="step3"><span class="badge">Шаг 3</span><br>Связываем домен с сервером</h3>
@@ -429,11 +431,18 @@ footer { border-top: 1px solid var(--border); padding: 36px 0 44px; }
 
     <p>Сохраняем. Получился адрес <code class="inline">ai.вашдомен.ru</code>, именно по нему вы потом и будете заходить.</p>
 
-    <div class="shot">
-      <div class="shot-head"><span class="shot-tag">Скриншот 5</span><span class="shot-title">Добавление A-записи</span></div>
-      <p>Экран управления DNS с заполненной формой: тип A, имя ai, значение это IP сервера. Подписать все три поля стрелками, IP замазать.</p>
-    </div>
-    <p class="shot-cap">Так выглядит правильно заполненная A-запись</p>
+    <figure class="article-img">
+      <img src="images/07-domain-list.jpg" alt="Выбираем свой домен в списке" loading="lazy">
+      <figcaption>Выбираем свой домен в списке</figcaption>
+    </figure>
+    <figure class="article-img">
+      <img src="images/08-dns-manage.jpg" alt="«DNS-серверы и управление зоной», кнопка «Изменить»" loading="lazy">
+      <figcaption>«DNS-серверы и управление зоной», кнопка «Изменить»</figcaption>
+    </figure>
+    <figure class="article-img">
+      <img src="images/09-dns-a-record.jpg" alt="Экран добавления A-записи: тип A, имя ai, значение это IP сервера" loading="lazy">
+      <figcaption>Экран добавления A-записи: тип A, имя ai, значение это IP сервера</figcaption>
+    </figure>
 
     <div class="callout callout-success">
       <span class="icon">✅</span>
@@ -565,6 +574,13 @@ Welcome to Ubuntu 24.04 LTS
       </div>
     </div>
 
+    <p>Если выбрали второй способ, в браузере откроется вот такой экран. Жмёте <b>Authorize</b>, копируете код и вставляете обратно в терминал.</p>
+
+    <figure class="article-img">
+      <img src="images/13-claude-authorize.jpg" alt="Экран авторизации Claude" loading="lazy">
+      <figcaption>Так выглядит вход в аккаунт. Открывается под VPN, одна минута</figcaption>
+    </figure>
+
     <p>Когда всё закончится, вы увидите три строчки: адрес, логин и пароль. <b>Скопируйте пароль сразу</b>, он больше нигде не показывается.</p>
 
     <div class="term">
@@ -595,10 +611,10 @@ Welcome to Ubuntu 24.04 LTS
     </div>
     <p class="shot-cap">Экран после успешной установки</p>
 
-    <div class="shot">
-      <div class="shot-head"><span class="shot-tag">Скриншот 6</span><span class="shot-title">Реальный экран установки</span></div>
-      <p>Заменить нарисованное окно выше на настоящий скрин из терминала после установки. Пароль на скрине замазать.</p>
-    </div>
+    <figure class="article-img">
+      <img src="images/10-terminal.jpg" alt="Экран после установки: адрес, логин и пароль" loading="lazy">
+      <figcaption>Экран после установки: адрес, логин и пароль</figcaption>
+    </figure>
 
     <!-- ШАГ 6 -->
     <h3 id="step6"><span class="badge">Шаг 6</span><br>Заходим в панель</h3>
@@ -612,11 +628,21 @@ Welcome to Ubuntu 24.04 LTS
       </div>
     </div>
 
-    <div class="shot">
-      <div class="shot-head"><span class="shot-tag">Скриншот 7</span><span class="shot-title">Вход в панель</span></div>
-      <p>Окно входа с заполненными логином и паролем, пароль замазать. Вторым кадром панель сразу после входа.</p>
-    </div>
-    <p class="shot-cap">Заходим под логином admin</p>
+    <figure class="article-img">
+      <img src="images/11-panel-login.jpg" alt="Вход в панель: логин admin и пароль с экрана установки" loading="lazy">
+      <figcaption>Вход в панель: логин admin и пароль с экрана установки</figcaption>
+    </figure>
+
+    <h4 style="font-size:18px;font-weight:800;margin:34px 0 12px">При первом входе панель попросит настроиться</h4>
+    <p>Сначала спросит настройки Git, там можно просто вписать своё имя и почту. Потом покажет экран <b>Connect Your AI Agents</b> со списком нейросетей.</p>
+    <p>Та, которую поставил установщик, уже будет помечена как <b>Authenticated</b>. Остальные можно подключить прямо здесь, кнопкой <b>Login</b>, ничего не набирая в терминале.</p>
+
+    <figure class="article-img">
+      <img src="images/12-panel-connect-agents.jpg" alt="Экран Connect Your AI Agents" loading="lazy">
+      <figcaption>Claude Code уже подключён. ChatGPT Codex можно подключить кнопкой Login</figcaption>
+    </figure>
+
+    <p>Жмём <b>Complete Setup</b>, и попадаем в панель.</p>
 
     <!-- ШАГ 7 -->
     <h3 id="step7"><span class="badge">Шаг 7</span><br>Создаём первый проект</h3>
@@ -639,11 +665,10 @@ Welcome to Ubuntu 24.04 LTS
       </div>
     </div>
 
-    <div class="shot">
-      <div class="shot-head"><span class="shot-tag">Скриншот 8</span><span class="shot-title">Создание проекта</span></div>
-      <p>Окно Create New Project с заполненным полем Workspace Path. Обвести поле и кнопку Next.</p>
-    </div>
-    <p class="shot-cap">Создаём первый проект</p>
+    <figure class="article-img">
+      <img src="images/15-create-project.jpg" alt="Создаём проект: путь /workspace/moy-proekt, поле GitHub оставляем пустым" loading="lazy">
+      <figcaption>Создаём проект: путь /workspace/moy-proekt, поле GitHub оставляем пустым</figcaption>
+    </figure>
 
     <!-- ШАГ 8 -->
     <h3 id="step8"><span class="badge">Шаг 8</span><br>Проверяем</h3>
@@ -654,12 +679,6 @@ Welcome to Ubuntu 24.04 LTS
       <li>Напишите в проекте что-нибудь простое, например «создай файл test.txt и напиши в нём привет». Нейросеть должна это сделать.</li>
     </ol>
     <p>Все три пункта работают? Поздравляю, у вас теперь своя панель с ИИ. 🎉</p>
-
-    <div class="shot">
-      <div class="shot-head"><span class="shot-tag">Скриншот 9</span><span class="shot-title">Проверка на телефоне</span></div>
-      <p>Фото или скрин телефона с открытой панелью и живым диалогом. Хорошо, если в шторке видно, что VPN выключен.</p>
-    </div>
-    <p class="shot-cap">Работает с телефона без всякого VPN</p>
 
     <div class="divider">✦</div>
 
@@ -674,12 +693,10 @@ Welcome to Ubuntu 24.04 LTS
     <h3>Выбор нейросети</h3>
     <p>Если у вас подключены обе, в панели можно выбрать, через кого работать: через Claude или через ChatGPT. Переключение занимает один клик, переписки при этом не смешиваются.</p>
 
-    <div class="shot">
-      <div class="shot-head"><span class="shot-tag">Скриншот 10</span><span class="shot-title">Выбор нейросети и работа в проекте</span></div>
-      <p>Скрин панели с открытым проектом, где виден переключатель между Claude и ChatGPT. Обвести переключатель.</p>
-      <p>Хорошо бы показать живой диалог, где нейросеть создаёт файл, чтобы было понятно, зачем нужны проекты.</p>
-    </div>
-    <p class="shot-cap">Выбираем, через кого работать</p>
+    <figure class="article-img">
+      <img src="images/17-agent-switch.jpg" alt="Перед началом разговора выбираем, через кого работать" loading="lazy">
+      <figcaption>Перед началом разговора выбираем, через кого работать</figcaption>
+    </figure>
 
     <h3>Добавьте ссылку на телефон</h3>
     <p>Откройте адрес панели в браузере телефона и добавьте страницу на главный экран. Появится иконка, как у обычного приложения. Удобно.</p>
@@ -707,6 +724,14 @@ Welcome to Ubuntu 24.04 LTS
     </div>
 
     <p>Установщик сам увидит, что у вас уже стоит, и спросит: «Добавить ChatGPT Codex рядом?» Отвечаете <code class="inline">y</code>.</p>
+
+    <div class="callout callout-info">
+      <span class="icon">💡</span>
+      <div>
+        <b class="callout-title">Войти в аккаунт можно и через панель</b>
+        <p>После того как установщик поставит вторую нейросеть, зайдите в панели в <b>Настройки</b> и найдите список агентов, тот же самый, что показывался при первом запуске. Там у каждого своя кнопка <b>Login</b>. Кому удобнее мышкой, а не терминалом, это самый простой путь.</p>
+      </div>
+    </div>
     <p>Домен и почту он больше не спрашивает, всё уже настроено. Второй ИИ встанет за пару минут, ничего из работающего он не тронет.</p>
 
     <div class="term">
